@@ -105,10 +105,7 @@ export default function CameraModal({ isOpen, onClose, onQRDetected }: CameraMod
             controlsRef.current = null;
         }
         
-        if (codeReaderRef.current) {
-            codeReaderRef.current.reset();
-            codeReaderRef.current = null;
-        }
+        codeReaderRef.current = null;
         
         setIsScanning(false);
         setQrDetected(false);

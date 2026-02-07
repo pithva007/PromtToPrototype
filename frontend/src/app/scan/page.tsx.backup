@@ -13,8 +13,10 @@ interface QRDecodeResponse {
     decodedText: string | null;
     isUrl: boolean;
     normalizedUrl: string | null;
+    // Non-HTTP QR codes (NEW)
     qrType?: 'http' | 'upi' | 'phone' | 'email' | 'sms' | 'wifi' | 'geo' | 'text';
     parsedData?: Record<string, any>;
+    // UPI security validation (NEW)
     upiValidation?: {
         isSuspicious: boolean;
         riskLevel: 'safe' | 'warning' | 'danger';
@@ -61,11 +63,6 @@ export default function ScanPage() {
     const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
     const [decodeResult, setDecodeResult] = useState<QRDecodeResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
-
-    const resetResults = () => {
-        setDecodeResult(null);
-        setAnalysisResult(null);
-    };
 
     const validateFile = (selectedFile: File): string | null => {
         if (!ALLOWED_TYPES.includes(selectedFile.type)) {
@@ -219,6 +216,11 @@ export default function ScanPage() {
         }
     };
 
+    const resetResults = () => {
+        setDecodeResult(null);
+        setAnalysisResult(null);
+    };
+
     const handleReset = () => {
         setFile(null);
         setUrlInput('');
@@ -311,6 +313,7 @@ export default function ScanPage() {
                                 <span className="sm:hidden">Camera</span>
                             </div>
                         </button>
+                    </div>
                     </div>
 
                     {/* MODE 1: Upload QR Image */}
