@@ -192,8 +192,15 @@ async def predict(request: PredictRequest):
         probability = model.predict_proba(url_tfidf)[0]
         
         # probability[1] is the probability of class 1 (malicious)
+        # Assumes classes are ['benign', 'malicious'] sorted alphabetically
         malicious_score = float(probability[1])
-        label = "malicious" if prediction == 1 else "benign"
+        
+        # Model returns string labels ('benign' or 'malicious')
+        # If prediction is already a string, use it. If it's 0/1, map it.
+        if isinstance(prediction, str):
+            label = prediction
+        else:
+            label = "malicious" if prediction == 1 else "benign"
         
         # Determine confidence (far from decision boundary)
         is_confident = (malicious_score > 0.9) or (malicious_score < 0.1)

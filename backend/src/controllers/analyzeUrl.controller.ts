@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { predictUrl, MLError } from '../utils/mlClient';
 import { isValidUrl, normalizeUrl } from '../utils/validators';
 
-const ML_THRESHOLD = parseFloat(process.env.ML_THRESHOLD || '0.60');
+const ML_THRESHOLD = parseFloat(process.env.ML_THRESHOLD || '0.80');
 
 export interface AnalyzeUrlResponse {
     success: boolean;

@@ -120,10 +120,14 @@ export function computeRiskBand(
     if (hostname) {
         matchedDomain = isSafeDomain(hostname, safeDomains);
 
+        console.log(`[computeRiskBand] hostname: ${hostname}, matched: ${matchedDomain}, score: ${mlScore}, max: ${safeOverrideMax}`);
+
         if (matchedDomain && mlScore < safeOverrideMax) {
             allowlistApplied = true;
-            // Downgrade risk for allowlisted domains
-            riskBand = mlScore < 0.4 ? 'safe' : 'suspicious';
+            // IMPORTANT: For trusted domains, always return 'safe' even if ML score is high
+            // The whole point of the allowlist is to trust these domains
+            riskBand = 'safe';
+            console.log(`[computeRiskBand] ✅ Allowlist override applied: ${matchedDomain} -> safe`);
             return { riskBand, allowlistApplied, matchedDomain };
         }
     }

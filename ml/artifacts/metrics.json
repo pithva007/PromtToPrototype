@@ -1,22 +1,27 @@
 {
-  "accuracy": 0.9463,
-  "precision": 0.9444798978940651,
-  "recall": 0.8907613602166716,
-  "f1": 0.9168344432398947,
+  "accuracy": 0.9836073244533176,
+  "precision": 0.985799952026865,
+  "recall": 0.9645606458880961,
+  "f1": 0.9750646515931576,
   "confusion_matrix": [
     [
-      6503,
-      174
+      85028,
+      592
     ],
     [
-      363,
-      2960
+      1510,
+      41098
     ]
   ],
-  "oob_score": 0.947875,
+  "oob_score": 0.98360144352529,
   "best_params": {
-    "n_estimators": 200,
+    "n_estimators": 400,
     "max_depth": null,
     "min_samples_split": 2
+  },
+  "recommended_threshold": 0.45,
+  "threshold_calibration": {
+    "best_f1": 0.9754118717936987,
+    "default_threshold_f1": 0.9751040788958135
   }
 }

@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import ResultCard, { AnalysisResult } from '@/components/ResultCard';
+import CameraModal from '@/components/CameraModal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -11,112 +13,56 @@ interface QRDecodeResponse {
     decodedText: string | null;
     isUrl: boolean;
     normalizedUrl: string | null;
-    error: {
-        code: string;
-        message: string;
-    } | null;
-}
-
-interface AnalyzeUrlResponse {
-    success: boolean;
-    decodedText: string;
-    isUrl: boolean;
-    normalizedUrl: string | null;
-    hostname?: string;  // NEW
-    tld?: string;  // NEW
-    mlLabel: 'benign' | 'malicious' | 'unknown';
-    mlScore: number;
-    thresholdUsed: number;
-    riskBand?: 'safe' | 'suspicious' | 'dangerous';  // NEW - from backend
-    allowlistApplied?: boolean; // NEW
-    overridePolicy?: {  // NEW
+    // Non-HTTP QR codes (NEW)
+    qrType?: 'http' | 'upi' | 'phone' | 'email' | 'sms' | 'wifi' | 'geo' | 'text';
+    parsedData?: Record<string, any>;
+    // UPI security validation (NEW)
+    upiValidation?: {
+        isSuspicious: boolean;
+        riskLevel: 'safe' | 'warning' | 'danger';
+        warnings: string[];
+    };
+    hostname?: string;
+    tld?: string;
+    mlLabel?: 'benign' | 'malicious' | 'unknown';
+    mlScore?: number;
+    thresholdUsed?: number;
+    riskBand?: 'safe' | 'suspicious' | 'dangerous';
+    allowlistApplied?: boolean;
+    overridePolicy?: {
         safe_override_max: number;
         applied_domain?: string;
     };
-    attackVector: 'phishing' | 'malware' | 'payment-scam' | 'redirect' | 'unknown';
-    reasons: string[];
+    attackVector?: 'phishing' | 'malware' | 'payment-scam' | 'redirect' | 'unknown';
+    reasons?: string[];
     error: {
         code: string;
         message: string;
     } | null;
 }
 
-type RiskLevel = 'safe' | 'suspicious' | 'danger';
-
-// Map backend risk band to frontend risk level
-function mapRiskBand(riskBand?: 'safe' | 'suspicious' | 'dangerous'): RiskLevel {
-    if (!riskBand) return 'suspicious';  // Default for unknown
-    if (riskBand === 'dangerous') return 'danger';
-    return riskBand;  // 'safe' or 'suspicious'
-}
-
-function getRiskColor(level: RiskLevel): string {
-    switch (level) {
-        case 'safe':
-            return 'from-green-500 to-emerald-600';
-        case 'suspicious':
-            return 'from-yellow-500 to-orange-600';
-        case 'danger':
-            return 'from-red-500 to-rose-600';
-    }
-}
-
-function getRiskBgColor(level: RiskLevel): string {
-    switch (level) {
-        case 'safe':
-            return 'bg-green-50 dark:bg-green-900/20 border-green-500';
-        case 'suspicious':
-            return 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-500';
-        case 'danger':
-            return 'bg-red-50 dark:bg-red-900/20 border-red-500';
-    }
-}
-
-function getRiskTextColor(level: RiskLevel): string {
-    switch (level) {
-        case 'safe':
-            return 'text-green-800 dark:text-green-200';
-        case 'suspicious':
-            return 'text-yellow-800 dark:text-yellow-200';
-        case 'danger':
-            return 'text-red-800 dark:text-red-200';
-    }
-}
-
-function getRiskIcon(level: RiskLevel): string {
-    switch (level) {
-        case 'safe':
-            return '✓';
-        case 'suspicious':
-            return '⚠';
-        case 'danger':
-            return '✕';
-    }
-}
-
-function getAttackVectorDisplay(vector: string): string {
-    switch (vector) {
-        case 'phishing':
-            return '🎣 Phishing Attack';
-        case 'malware':
-            return '🦠 Malware Distribution';
-        case 'payment-scam':
-            return '💸 Payment Scam';
-        case 'redirect':
-            return '🔀 Suspicious Redirect';
-        default:
-            return '❓ Unknown';
-    }
-}
+type ScanMode = 'upload' | 'paste' | 'camera';
 
 export default function ScanPage() {
+    // Mode selection
+    const [mode, setMode] = useState<ScanMode>('upload');
+    
+    // Upload mode state
     const [file, setFile] = useState<File | null>(null);
-    const [loading, setLoading] = useState(false);
-    const [analyzingUrl, setAnalyzingUrl] = useState(false);
-    const [decodeResult, setDecodeResult] = useState<QRDecodeResponse | null>(null);
-    const [analysisResult, setAnalysisResult] = useState<AnalyzeUrlResponse | null>(null);
-    const [error, setError] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    
+    // Paste mode state
+    const [urlInput, setUrlInput] = useState('');
+    
+    // Camera mode state
+    const [showCameraModal, setShowCameraModal] = useState(false);
+    
+    // Shared state
+    const [loading, setLoading] = useState(false);
+    const [loadingMessage, setLoadingMessage] = useState('');
+    const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+    const [decodeResult, setDecodeResult] = useState<QRDecodeResponse | null>(null);
+    const [error, setError] = useState<string | null>(null);
 
     const validateFile = (selectedFile: File): string | null => {
         if (!ALLOWED_TYPES.includes(selectedFile.type)) {
@@ -136,15 +82,13 @@ export default function ScanPage() {
         if (validationError) {
             setError(validationError);
             setFile(null);
-            setDecodeResult(null);
-            setAnalysisResult(null);
+            resetResults();
             return;
         }
 
         setFile(selectedFile);
         setError(null);
-        setDecodeResult(null);
-        setAnalysisResult(null);
+        resetResults();
     };
 
     const handleScan = async () => {
@@ -176,21 +120,11 @@ export default function ScanPage() {
                 return;
             }
 
-            // Step 2: If URL detected, analyze it with ML
+            // Step 2: If URL detected, the ML analysis is already included in decodeData
             if (decodeData.isUrl && decodeData.decodedText) {
-                setAnalyzingUrl(true);
-
-                const analyzeResponse = await fetch(`${API_URL}/api/analyze-url`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ decodedText: decodeData.decodedText }),
-                });
-
-                const analyzeData: AnalyzeUrlResponse = await analyzeResponse.json();
-                setAnalysisResult(analyzeData);
-                setAnalyzingUrl(false);
+                // The /api/qr/decode endpoint now returns comprehensive ML analysis
+                // including allowlist override, so we don't need a separate call
+                setAnalysisResult(decodeData as any);  // decodeData has all ML fields
             }
 
         } catch (err) {
@@ -387,14 +321,14 @@ export default function ScanPage() {
                                             </p>
                                         </div>
                                     </div>
-                                    
+
                                     {/* Hostname Display */}
                                     {analysisResult.hostname && (
                                         <p className={`text-xs ${getRiskTextColor(riskLevel)} opacity-75 font-mono mt-1`}>
                                             {analysisResult.hostname}
                                         </p>
                                     )}
-                                    
+
                                     {/* Allowlist Override Notice */}
                                     {analysisResult.allowlistApplied && analysisResult.overridePolicy?.applied_domain && (
                                         <div className="mt-3 flex items-center gap-2 bg-white/60 dark:bg-slate-800/60 px-3 py-2 rounded-lg border border-green-300 dark:border-green-700">
@@ -506,25 +440,133 @@ export default function ScanPage() {
                                         QR Code Decoded Successfully!
                                     </p>
 
-                                    <div className="bg-white dark:bg-slate-800 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
-                                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">
-                                            Decoded Content:
-                                        </p>
-                                        <p className="text-slate-900 dark:text-white font-mono text-sm break-all">
-                                            {decodeResult.decodedText}
-                                        </p>
-                                    </div>
+                                    {/* UPI Payment Display */}
+                                    {decodeResult.qrType === 'upi' && decodeResult.parsedData && (
+                                        <div className="bg-gradient-to-br from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 p-5 rounded-lg border-2 border-purple-300 dark:border-purple-700 space-y-3">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-3xl">💳</span>
+                                                <div>
+                                                    <p className="text-sm font-bold text-purple-900 dark:text-purple-200">
+                                                        UPI Payment QR Code
+                                                    </p>
+                                                    {decodeResult.parsedData.detectedApp && (
+                                                        <p className="text-xs text-purple-600 dark:text-purple-400">
+                                                            {decodeResult.parsedData.detectedApp} QR
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
 
-                                    <p className="text-xs text-blue-600 dark:text-blue-400">
-                                        ℹ This appears to be plain text, not a URL.
-                                    </p>
+                                            {/* Security Warning Banner */}
+                                            {decodeResult.upiValidation && decodeResult.upiValidation.isSuspicious && (
+                                                <div className={`p-4 rounded-lg border-2 ${decodeResult.upiValidation.riskLevel === 'danger'
+                                                        ? 'bg-red-50 dark:bg-red-900/20 border-red-500'
+                                                        : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-500'
+                                                    }`}>
+                                                    <div className="flex items-start gap-2">
+                                                        <span className="text-2xl">
+                                                            {decodeResult.upiValidation.riskLevel === 'danger' ? '🚨' : '⚠️'}
+                                                        </span>
+                                                        <div className="flex-1">
+                                                            <p className={`text-sm font-bold mb-2 ${decodeResult.upiValidation.riskLevel === 'danger'
+                                                                    ? 'text-red-900 dark:text-red-200'
+                                                                    : 'text-yellow-900 dark:text-yellow-200'
+                                                                }`}>
+                                                                {decodeResult.upiValidation.riskLevel === 'danger'
+                                                                    ? '⚠️ Security Alert - Potential Scam Detected!'
+                                                                    : '⚠️ Please Verify Before Proceeding'
+                                                                }
+                                                            </p>
+                                                            <ul className={`text-xs space-y-1 ${decodeResult.upiValidation.riskLevel === 'danger'
+                                                                    ? 'text-red-800 dark:text-red-300'
+                                                                    : 'text-yellow-800 dark:text-yellow-300'
+                                                                }`}>
+                                                                {decodeResult.upiValidation.warnings.map((warning, idx) => (
+                                                                    <li key={idx} className="flex items-start gap-1">
+                                                                        <span>•</span>
+                                                                        <span>{warning}</span>
+                                                                    </li>
+                                                                ))}
+                                                            </ul>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
 
-                                    <button
-                                        onClick={() => handleCopyToClipboard(decodeResult.decodedText!)}
-                                        className="w-full bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-sm font-semibold py-2 px-4 rounded-lg transition-colors"
-                                    >
-                                        Copy Text
-                                    </button>
+                                            <div className="space-y-2">
+                                                {decodeResult.parsedData.payeeName && (
+                                                    <div className="bg-white dark:bg-slate-800 p-3 rounded-lg">
+                                                        <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                                                            Beneficiary
+                                                        </p>
+                                                        <p className="text-sm font-semibold text-slate-900 dark:text-white mt-1">
+                                                            {decodeResult.parsedData.payeeName}
+                                                        </p>
+                                                    </div>
+                                                )}
+
+                                                <div className="bg-white dark:bg-slate-800 p-3 rounded-lg">
+                                                    <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                                                        UPI ID
+                                                    </p>
+                                                    <p className="text-sm font-mono text-slate-900 dark:text-white mt-1 break-all">
+                                                        {decodeResult.parsedData.payeeAddress}
+                                                    </p>
+                                                </div>
+
+                                                {decodeResult.parsedData.amount && (
+                                                    <div className="bg-white dark:bg-slate-800 p-3 rounded-lg">
+                                                        <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                                                            Amount
+                                                        </p>
+                                                        <p className="text-lg font-bold text-green-600 dark:text-green-400 mt-1">
+                                                            ₹{decodeResult.parsedData.amount}
+                                                        </p>
+                                                    </div>
+                                                )}
+
+                                                {decodeResult.parsedData.transactionNote && (
+                                                    <div className="bg-white dark:bg-slate-800 p-3 rounded-lg">
+                                                        <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                                                            Note
+                                                        </p>
+                                                        <p className="text-sm text-slate-900 dark:text-white mt-1">
+                                                            {decodeResult.parsedData.transactionNote}
+                                                        </p>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <p className="text-xs text-purple-600 dark:text-purple-400 italic">
+                                                ℹ️ Scan this with your UPI app to make payment
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    {/* Plain text or unrecognized QR type */}
+                                    {(!decodeResult.qrType || decodeResult.qrType === 'text') && (
+                                        <>
+                                            <div className="bg-white dark:bg-slate-800 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
+                                                <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">
+                                                    Decoded Content:
+                                                </p>
+                                                <p className="text-slate-900 dark:text-white font-mono text-sm break-all">
+                                                    {decodeResult.decodedText}
+                                                </p>
+                                            </div>
+
+                                            <p className="text-xs text-blue-600 dark:text-blue-400">
+                                                ℹ This appears to be plain text, not a URL.
+                                            </p>
+
+                                            <button
+                                                onClick={() => handleCopyToClipboard(decodeResult.decodedText!)}
+                                                className="w-full bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-sm font-semibold py-2 px-4 rounded-lg transition-colors"
+                                            >
+                                                Copy Text
+                                            </button>
+                                        </>
+                                    )}
                                 </div>
                             </div>
                         </div>

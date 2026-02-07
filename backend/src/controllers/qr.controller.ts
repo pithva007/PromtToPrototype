@@ -14,15 +14,29 @@ import {
     computeRiskBand,
     isHighRiskTld,
 } from '../utils/safeDomains';
+import { parseQRCode, QRType, validateUPI } from '../utils/uriParsers';
 
 const ML_THRESHOLD = parseFloat(process.env.ML_THRESHOLD || '0.80');  // Increased from 0.60
-const SAFE_OVERRIDE_MAX = parseFloat(process.env.SAFE_OVERRIDE_MAX || '0.95');
+const SAFE_OVERRIDE_MAX = parseFloat(process.env.SAFE_OVERRIDE_MAX || '0.99');
+
+// Debug: Log actual values in controller
+console.log(`[QR Controller] ML_THRESHOLD loaded: ${ML_THRESHOLD}`);
+console.log(`[QR Controller] SAFE_OVERRIDE_MAX loaded: ${SAFE_OVERRIDE_MAX}`);
 
 export interface QRDecodeResponse {
     success: boolean;
     decodedText: string | null;
     isUrl: boolean;
     normalizedUrl: string | null;
+    // QR Type (NEW - for non-HTTP QR codes)
+    qrType?: QRType;
+    parsedData?: Record<string, any>;
+    // UPI security validation (NEW)
+    upiValidation?: {
+        isSuspicious: boolean;
+        riskLevel: 'safe' | 'warning' | 'danger';
+        warnings: string[];
+    };
     // URL parts (NEW)
     hostname?: string;
     tld?: string;
@@ -248,18 +262,43 @@ export async function decodeQRCode(
         const isUrl = isValidUrl(decodeResult.decodedText);
         const normalizedUrl = isUrl ? normalizeUrl(decodeResult.decodedText) : null;
 
+        // Parse QR code to detect type (UPI, phone, email, etc.)
+        const qrData = parseQRCode(decodeResult.decodedText);
+
+        // If it's a non-HTTP QR code (UPI, phone, email, WiFi, etc.), return parsed data
+        if (qrData.qrType !== 'http' && qrData.qrType !== 'text') {
+            // For UPI codes, add security validation
+            let upiValidation = null;
+            if (qrData.qrType === 'upi' && qrData.parsedData) {
+                upiValidation = validateUPI(qrData.parsedData as any);
+            }
+
+            res.status(200).json({
+                success: true,
+                decodedText: decodeResult.decodedText,
+                isUrl: false,  // Not an HTTP URL
+                normalizedUrl: null,
+                qrType: qrData.qrType,
+                parsedData: qrData.parsedData,
+                // UPI-specific validation (NEW)
+                upiValidation: upiValidation || undefined,
+                error: null,
+            });
+            return;
+        }
+
         // If it's a URL, automatically run ML analysis
         if (isUrl && normalizedUrl) {
             let mlLabel: 'benign' | 'malicious' | 'unknown' = 'unknown';
             let mlScore = 0;
             let attackVector: string = 'unknown';
             let reasons: string[] = [];
-            
+
             // Extract URL parts
             const urlParts = extractUrlParts(normalizedUrl);
             const hostname = urlParts?.hostname || null;
             const tld = urlParts?.tld || null;
-            
+
             // Get safe domains
             const safeDomains = getSafeDomains();
 
@@ -271,7 +310,7 @@ export async function decodeQRCode(
 
                 // Detect attack vector
                 attackVector = detectAttackVector(normalizedUrl);
-                
+
                 // Compute risk band with allowlist override
                 const riskBandResult = computeRiskBand(
                     mlScore,
@@ -283,14 +322,22 @@ export async function decodeQRCode(
 
                 // Generate reasons (including allowlist info)
                 reasons = generateReasons(
-                    mlLabel, 
-                    mlScore, 
-                    attackVector, 
+                    mlLabel,
+                    mlScore,
+                    attackVector,
                     normalizedUrl,
                     riskBandResult.allowlistApplied,
                     riskBandResult.matchedDomain,
                     tld
                 );
+
+                // Debug: Log what we're sending to frontend
+                console.log(`[QR Response] Sending: riskBand=${riskBandResult.riskBand}, threshold=${ML_THRESHOLD}, allowlist=${riskBandResult.allowlistApplied}`);
+
+                // Prevent caching - force fresh data
+                res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+                res.set('Pragma', 'no-cache');
+                res.set('Expires', '0');
 
                 // Return success with ML analysis
                 res.status(200).json({
@@ -319,7 +366,7 @@ export async function decodeQRCode(
 
                 // Return with ML unavailable, but still include basic analysis
                 attackVector = detectAttackVector(normalizedUrl);
-                
+
                 // Compute risk band without ML (defaults to safe)
                 const riskBandResult = computeRiskBand(
                     0,  // No ML score

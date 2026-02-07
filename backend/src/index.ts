@@ -9,6 +9,14 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Debug: Check environment variables
+console.log('----------------------------------------');
+console.log('🔧 Backend Configuration:');
+console.log(`   ML_THRESHOLD: ${process.env.ML_THRESHOLD}`);
+console.log(`   SAFE_OVERRIDE_MAX: ${process.env.SAFE_OVERRIDE_MAX}`);
+console.log(`   SAFE_DOMAINS loaded: ${!!process.env.SAFE_DOMAINS}`);
+console.log('----------------------------------------');
 const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:3000';
 
 // CORS configuration

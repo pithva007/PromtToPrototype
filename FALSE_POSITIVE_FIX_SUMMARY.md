@@ -17,13 +17,13 @@ All components of the production-grade false-positive mitigation system have bee
 
 ---
 
-## 📁 Files Created
+## 🔧 Critical Bug Fixes (Applied)
 
-```
-ml/data/benign_brands.csv                    # 20 legitimate brand URLs
-backend/src/utils/safeDomains.ts             # Allowlist utilities
-FALSE_POSITIVE_FIX_VERIFICATION.md           # Testing guide
-```
+1. **Fixed Label Prediction Logic:** `app.py` was incorrectly handling string labels from the model, causing "benign" labels even for high-scoring malicious URLs.
+2. **Updated Configuration:** Default backend configuration was using old threshold.
+3. **Increased Override Limit:** `SAFE_OVERRIDE_MAX` increased to 0.99 to ensure Codeforces/Instagram are trusted even if model overfits (score ~0.98).
+
+---
 
 ---
 
@@ -76,7 +76,7 @@ Follow the comprehensive guide: `FALSE_POSITIVE_FIX_VERIFICATION.md`
 ```env
 # Backend .env (already added)
 ML_THRESHOLD=0.80                    # Increased from 0.60
-SAFE_OVERRIDE_MAX=0.95               # Max score for allowlist override
+SAFE_OVERRIDE_MAX=0.99               # Increased to 0.99 (critical for Codeforces)
 SAFE_DOMAINS=instagram.com,linkedin.com,codeforces.com,github.com,google.com,youtube.com,facebook.com,twitter.com,amazon.com,microsoft.com
 ```
 
