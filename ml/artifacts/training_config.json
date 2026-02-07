@@ -1,6 +1,6 @@
 {
-  "model_version": "20260207_121147",
-  "timestamp": "2026-02-07T12:11:47.281655",
+  "model_version": "20260207_152249",
+  "timestamp": "2026-02-07T15:22:49.568701",
   "dataset_path": "./data/malicious_phish.csv",
   "dataset_size": 641139,
   "url_column": "url",
@@ -28,6 +28,6 @@
     "max_depth": null,
     "min_samples_split": 2
   },
-  "recommended_threshold": 0.45,
+  "recommended_threshold": 0.425,
   "brand_augmentation": "./data/benign_brands.csv"
 }

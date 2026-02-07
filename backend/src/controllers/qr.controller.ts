@@ -5,6 +5,7 @@ import {
     isValidMimeType,
     isValidFileSize,
     isValidUrl,
+    normalizeUrl,
 } from '../utils/validators';
 import { parseQRCode, QRType, validateUPI } from '../utils/uriParsers';
 import { analyzeUrlWithML } from '../utils/urlAnalysis';
