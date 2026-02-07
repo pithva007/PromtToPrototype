@@ -17,10 +17,104 @@ interface QRDecodeResponse {
     } | null;
 }
 
+interface AnalyzeUrlResponse {
+    success: boolean;
+    decodedText: string;
+    isUrl: boolean;
+    normalizedUrl: string | null;
+    hostname?: string;  // NEW
+    tld?: string;  // NEW
+    mlLabel: 'benign' | 'malicious' | 'unknown';
+    mlScore: number;
+    thresholdUsed: number;
+    riskBand?: 'safe' | 'suspicious' | 'dangerous';  // NEW - from backend
+    allowlistApplied?: boolean; // NEW
+    overridePolicy?: {  // NEW
+        safe_override_max: number;
+        applied_domain?: string;
+    };
+    attackVector: 'phishing' | 'malware' | 'payment-scam' | 'redirect' | 'unknown';
+    reasons: string[];
+    error: {
+        code: string;
+        message: string;
+    } | null;
+}
+
+type RiskLevel = 'safe' | 'suspicious' | 'danger';
+
+// Map backend risk band to frontend risk level
+function mapRiskBand(riskBand?: 'safe' | 'suspicious' | 'dangerous'): RiskLevel {
+    if (!riskBand) return 'suspicious';  // Default for unknown
+    if (riskBand === 'dangerous') return 'danger';
+    return riskBand;  // 'safe' or 'suspicious'
+}
+
+function getRiskColor(level: RiskLevel): string {
+    switch (level) {
+        case 'safe':
+            return 'from-green-500 to-emerald-600';
+        case 'suspicious':
+            return 'from-yellow-500 to-orange-600';
+        case 'danger':
+            return 'from-red-500 to-rose-600';
+    }
+}
+
+function getRiskBgColor(level: RiskLevel): string {
+    switch (level) {
+        case 'safe':
+            return 'bg-green-50 dark:bg-green-900/20 border-green-500';
+        case 'suspicious':
+            return 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-500';
+        case 'danger':
+            return 'bg-red-50 dark:bg-red-900/20 border-red-500';
+    }
+}
+
+function getRiskTextColor(level: RiskLevel): string {
+    switch (level) {
+        case 'safe':
+            return 'text-green-800 dark:text-green-200';
+        case 'suspicious':
+            return 'text-yellow-800 dark:text-yellow-200';
+        case 'danger':
+            return 'text-red-800 dark:text-red-200';
+    }
+}
+
+function getRiskIcon(level: RiskLevel): string {
+    switch (level) {
+        case 'safe':
+            return '✓';
+        case 'suspicious':
+            return '⚠';
+        case 'danger':
+            return '✕';
+    }
+}
+
+function getAttackVectorDisplay(vector: string): string {
+    switch (vector) {
+        case 'phishing':
+            return '🎣 Phishing Attack';
+        case 'malware':
+            return '🦠 Malware Distribution';
+        case 'payment-scam':
+            return '💸 Payment Scam';
+        case 'redirect':
+            return '🔀 Suspicious Redirect';
+        default:
+            return '❓ Unknown';
+    }
+}
+
 export default function ScanPage() {
     const [file, setFile] = useState<File | null>(null);
     const [loading, setLoading] = useState(false);
-    const [result, setResult] = useState<QRDecodeResponse | null>(null);
+    const [analyzingUrl, setAnalyzingUrl] = useState(false);
+    const [decodeResult, setDecodeResult] = useState<QRDecodeResponse | null>(null);
+    const [analysisResult, setAnalysisResult] = useState<AnalyzeUrlResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -42,13 +136,15 @@ export default function ScanPage() {
         if (validationError) {
             setError(validationError);
             setFile(null);
-            setResult(null);
+            setDecodeResult(null);
+            setAnalysisResult(null);
             return;
         }
 
         setFile(selectedFile);
         setError(null);
-        setResult(null);
+        setDecodeResult(null);
+        setAnalysisResult(null);
     };
 
     const handleScan = async () => {
@@ -59,24 +155,44 @@ export default function ScanPage() {
 
         setLoading(true);
         setError(null);
-        setResult(null);
+        setDecodeResult(null);
+        setAnalysisResult(null);
 
         try {
+            // Step 1: Decode QR code
             const formData = new FormData();
             formData.append('file', file);
 
-            const response = await fetch(`${API_URL}/api/qr/decode`, {
+            const decodeResponse = await fetch(`${API_URL}/api/qr/decode`, {
                 method: 'POST',
                 body: formData,
             });
 
-            const data: QRDecodeResponse = await response.json();
+            const decodeData: QRDecodeResponse = await decodeResponse.json();
+            setDecodeResult(decodeData);
 
-            if (data.success) {
-                setResult(data);
-            } else {
-                setError(data.error?.message || 'Failed to decode QR code');
+            if (!decodeData.success) {
+                setError(decodeData.error?.message || 'Failed to decode QR code');
+                return;
             }
+
+            // Step 2: If URL detected, analyze it with ML
+            if (decodeData.isUrl && decodeData.decodedText) {
+                setAnalyzingUrl(true);
+
+                const analyzeResponse = await fetch(`${API_URL}/api/analyze-url`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ decodedText: decodeData.decodedText }),
+                });
+
+                const analyzeData: AnalyzeUrlResponse = await analyzeResponse.json();
+                setAnalysisResult(analyzeData);
+                setAnalyzingUrl(false);
+            }
+
         } catch (err) {
             setError('Network error. Please check if the backend is running.');
             console.error('Scan error:', err);
@@ -96,28 +212,38 @@ export default function ScanPage() {
 
     const handleReset = () => {
         setFile(null);
-        setResult(null);
+        setDecodeResult(null);
+        setAnalysisResult(null);
         setError(null);
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
         }
     };
 
+    const riskLevel = analysisResult
+        ? mapRiskBand(analysisResult.riskBand)
+        : undefined;
+
     return (
-        <main className="min-h-screen bg-gradient-to-br from-primary-50 via-white to-primary-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 py-12 px-4">
-            <div className="max-w-2xl mx-auto">
+        <main className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 dark:from-slate-900 dark:via-slate-800 dark:to-indigo-950 py-12 px-4">
+            <div className="max-w-4xl mx-auto">
                 {/* Header */}
-                <div className="text-center mb-8">
-                    <h1 className="text-4xl font-bold text-primary-900 dark:text-white mb-2">
-                        Scan QR Code
-                    </h1>
-                    <p className="text-slate-600 dark:text-slate-400">
-                        Upload an image containing a QR code to decode it safely
+                <div className="text-center mb-10">
+                    <div className="inline-flex items-center gap-2 mb-4">
+                        <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
+                            <span className="text-2xl">🔍</span>
+                        </div>
+                        <h1 className="text-5xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-400 dark:to-indigo-400 bg-clip-text text-transparent">
+                            Safe-Scan
+                        </h1>
+                    </div>
+                    <p className="text-lg text-slate-600 dark:text-slate-300 max-w-2xl mx-auto">
+                        Upload QR codes and get instant AI-powered malicious URL detection with comprehensive threat analysis
                     </p>
                 </div>
 
                 {/* Main Card */}
-                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-8 space-y-6">
+                <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl p-8 space-y-6 border border-slate-200 dark:border-slate-700">
                     {/* Upload Section */}
                     <div className="space-y-4">
                         <input
@@ -129,42 +255,63 @@ export default function ScanPage() {
                             id="file-upload"
                         />
 
-                        <label
-                            htmlFor="file-upload"
-                            className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-primary-300 dark:border-primary-700 rounded-xl cursor-pointer bg-primary-50 dark:bg-slate-700 hover:bg-primary-100 dark:hover:bg-slate-600 transition-colors"
-                        >
-                            <div className="flex flex-col items-center justify-center pt-5 pb-6 text-center px-4">
-                                <svg
-                                    className="w-12 h-12 mb-3 text-primary-500 dark:text-primary-400"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                                    />
-                                </svg>
-                                <p className="mb-2 text-sm text-slate-600 dark:text-slate-300 font-semibold">
-                                    {file ? file.name : 'Click to upload QR image'}
-                                </p>
-                                <p className="text-xs text-slate-500 dark:text-slate-400">
-                                    PNG, JPG, or WebP (max 5MB)
-                                </p>
+
+                        {!file ? (
+                            <label
+                                htmlFor="file-upload"
+                                className="flex items-center justify-center gap-2 w-full py-3 px-4 border-2 border-dashed border-indigo-300 dark:border-indigo-700 rounded-lg cursor-pointer bg-gradient-to-br from-blue-50/50 to-indigo-50/50 dark:from-slate-700/50 dark:to-indigo-900/30 hover:border-indigo-400 dark:hover:border-indigo-500 hover:bg-blue-100/50 dark:hover:bg-slate-600/50 transition-all duration-200 group"
+                            >
+                                <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform">
+                                        <svg
+                                            className="w-5 h-5 text-white"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                                            />
+                                        </svg>
+                                    </div>
+                                    <div className="text-left">
+                                        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                            Choose QR Code Image
+                                        </p>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                                            PNG, JPG, WebP • Max 5MB
+                                        </p>
+                                    </div>
+                                </div>
+                            </label>
+                        ) : (
+                            <div className="flex items-center gap-2 p-3 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border-2 border-green-300 dark:border-green-700 rounded-lg">
+                                <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center shadow-sm">
+                                    <span className="text-white text-base">✓</span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-semibold text-green-700 dark:text-green-300">
+                                        File Selected
+                                    </p>
+                                    <p className="text-xs text-green-600 dark:text-green-400 truncate">
+                                        {file.name}
+                                    </p>
+                                </div>
                             </div>
-                        </label>
+                        )}
 
                         {/* Action Buttons */}
                         <div className="flex gap-3">
                             <button
                                 onClick={handleScan}
                                 disabled={!file || loading}
-                                className="flex-1 bg-primary-600 hover:bg-primary-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white font-semibold py-4 px-6 rounded-xl transition-all transform hover:scale-105 active:scale-95 shadow-lg disabled:transform-none disabled:shadow-md"
+                                className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-400 disabled:to-slate-500 disabled:cursor-not-allowed text-white font-bold py-4 px-6 rounded-xl transition-all transform hover:scale-[1.02] active:scale-95 shadow-xl disabled:transform-none disabled:shadow-md flex items-center justify-center gap-2"
                             >
                                 {loading ? (
-                                    <span className="flex items-center justify-center gap-2">
+                                    <>
                                         <svg
                                             className="animate-spin h-5 w-5 text-white"
                                             xmlns="http://www.w3.org/2000/svg"
@@ -185,10 +332,13 @@ export default function ScanPage() {
                                                 d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                                             />
                                         </svg>
-                                        Decoding...
-                                    </span>
+                                        {analyzingUrl ? 'Analyzing URL...' : 'Decoding QR...'}
+                                    </>
                                 ) : (
-                                    'Scan QR Code'
+                                    <>
+                                        <span className="text-xl">🔍</span>
+                                        Scan QR Code
+                                    </>
                                 )}
                             </button>
 
@@ -196,7 +346,7 @@ export default function ScanPage() {
                                 <button
                                     onClick={handleReset}
                                     disabled={loading}
-                                    className="px-6 py-4 border-2 border-slate-300 dark:border-slate-600 hover:border-slate-400 dark:hover:border-slate-500 text-slate-700 dark:text-slate-300 font-semibold rounded-xl transition-colors disabled:opacity-50"
+                                    className="px-6 py-4 border-2 border-slate-300 dark:border-slate-600 hover:border-indigo-400 dark:hover:border-indigo-500 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold rounded-xl transition-all disabled:opacity-50"
                                 >
                                     Reset
                                 </button>
@@ -206,82 +356,175 @@ export default function ScanPage() {
 
                     {/* Error Display */}
                     {error && (
-                        <div className="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 p-4 rounded-lg">
-                            <div className="flex items-start">
-                                <svg
-                                    className="w-5 h-5 text-red-500 mt-0.5 mr-3 flex-shrink-0"
-                                    fill="currentColor"
-                                    viewBox="0 0 20 20"
-                                >
-                                    <path
-                                        fillRule="evenodd"
-                                        d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                                        clipRule="evenodd"
-                                    />
-                                </svg>
-                                <p className="text-sm text-red-800 dark:text-red-200 font-medium">
+                        <div className="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 p-5 rounded-xl shadow-sm">
+                            <div className="flex items-start gap-3">
+                                <div className="flex-shrink-0 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center">
+                                    <span className="text-white text-sm font-bold">!</span>
+                                </div>
+                                <p className="text-sm text-red-800 dark:text-red-200 font-medium flex-1">
                                     {error}
                                 </p>
                             </div>
                         </div>
                     )}
 
-                    {/* Success Result */}
-                    {result && result.success && (
-                        <div className="bg-green-50 dark:bg-green-900/20 border-l-4 border-green-500 p-6 rounded-lg space-y-4">
-                            <div className="flex items-start">
-                                <svg
-                                    className="w-6 h-6 text-green-500 mt-0.5 mr-3 flex-shrink-0"
-                                    fill="currentColor"
-                                    viewBox="0 0 20 20"
-                                >
-                                    <path
-                                        fillRule="evenodd"
-                                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                                        clipRule="evenodd"
+                    {/* ML Analysis Result */}
+                    {analysisResult && analysisResult.success && riskLevel && (
+                        <div className={`${getRiskBgColor(riskLevel)} border-l-4 p-6 rounded-xl space-y-5 shadow-lg`}>
+                            {/* Risk Header */}
+                            <div className="flex items-start justify-between gap-4">
+                                <div className="flex-1">
+                                    <div className="flex items-center gap-3 mb-2">
+                                        <div className={`w-12 h-12 bg-gradient-to-br ${getRiskColor(riskLevel)} rounded-xl flex items-center justify-center shadow-md text-white text-2xl font-bold`}>
+                                            {getRiskIcon(riskLevel)}
+                                        </div>
+                                        <div>
+                                            <h3 className={`text-2xl font-bold ${getRiskTextColor(riskLevel)} capitalize`}>
+                                                {riskLevel === 'safe' ? 'Safe URL' : riskLevel === 'suspicious' ? 'Suspicious URL' : 'Dangerous URL'}
+                                            </h3>
+                                            <p className={`text-sm ${getRiskTextColor(riskLevel)} opacity-75`}>
+                                                {analysisResult.mlLabel === 'unknown' ? 'Unable to classify' : `Classified as ${analysisResult.mlLabel}`}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Hostname Display */}
+                                    {analysisResult.hostname && (
+                                        <p className={`text-xs ${getRiskTextColor(riskLevel)} opacity-75 font-mono mt-1`}>
+                                            {analysisResult.hostname}
+                                        </p>
+                                    )}
+                                    
+                                    {/* Allowlist Override Notice */}
+                                    {analysisResult.allowlistApplied && analysisResult.overridePolicy?.applied_domain && (
+                                        <div className="mt-3 flex items-center gap-2 bg-white/60 dark:bg-slate-800/60 px-3 py-2 rounded-lg border border-green-300 dark:border-green-700">
+                                            <span className="text-green-600 dark:text-green-400 text-sm">✓</span>
+                                            <span className="text-xs font-medium text-green-700 dark:text-green-300">
+                                                Trusted domain override applied: {analysisResult.overridePolicy.applied_domain}
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Risk Score Visualization */}
+                            <div className="space-y-2">
+                                <div className="flex justify-between items-center">
+                                    <span className={`text-sm font-semibold ${getRiskTextColor(riskLevel)}`}>
+                                        Threat Score
+                                    </span>
+                                    <span className={`text-lg font-bold ${getRiskTextColor(riskLevel)}`}>
+                                        {(analysisResult.mlScore * 100).toFixed(1)}%
+                                    </span>
+                                </div>
+                                <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-4 overflow-hidden shadow-inner">
+                                    <div
+                                        className={`h-full bg-gradient-to-r ${getRiskColor(riskLevel)} rounded-full transition-all duration-1000 ease-out shadow-lg`}
+                                        style={{ width: `${analysisResult.mlScore * 100}%` }}
                                     />
-                                </svg>
+                                </div>
+                                <p className="text-xs text-slate-600 dark:text-slate-400">
+                                    Threshold: {(analysisResult.thresholdUsed * 100).toFixed(0)}% •
+                                    Confidence: {analysisResult.mlLabel !== 'unknown' ? `${((1 - Math.abs(analysisResult.mlScore - 0.5) * 2) * 100).toFixed(0)}%` : 'N/A'}
+                                </p>
+                            </div>
+
+                            {/* Attack Vector */}
+                            {analysisResult.attackVector !== 'unknown' && (
+                                <div className={`bg-white/50 dark:bg-slate-800/50 p-4 rounded-xl border border-current/20`}>
+                                    <p className={`text-sm font-semibold ${getRiskTextColor(riskLevel)} mb-1`}>
+                                        Detected Threat Type:
+                                    </p>
+                                    <p className={`text-lg font-bold ${getRiskTextColor(riskLevel)}`}>
+                                        {getAttackVectorDisplay(analysisResult.attackVector)}
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Decoded URL */}
+                            <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
+                                <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide font-semibold">
+                                    Decoded URL:
+                                </p>
+                                <p className="text-slate-900 dark:text-white font-mono text-sm break-all bg-slate-100 dark:bg-slate-900 p-3 rounded-lg">
+                                    {analysisResult.decodedText}
+                                </p>
+                            </div>
+
+                            {/* Reasons */}
+                            {analysisResult.reasons && analysisResult.reasons.length > 0 && (
+                                <div className="space-y-2">
+                                    <p className={`text-sm font-semibold ${getRiskTextColor(riskLevel)} flex items-center gap-2`}>
+                                        <span>📋</span>
+                                        Analysis Details:
+                                    </p>
+                                    <ul className="space-y-2">
+                                        {analysisResult.reasons.map((reason, idx) => (
+                                            <li
+                                                key={idx}
+                                                className={`flex items-start gap-2 text-sm ${getRiskTextColor(riskLevel)} bg-white/30 dark:bg-slate-800/30 p-3 rounded-lg`}
+                                            >
+                                                <span className="flex-shrink-0 mt-0.5">•</span>
+                                                <span className="flex-1">{reason}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {/* Action Buttons */}
+                            <div className="flex gap-3 pt-2">
+                                {analysisResult.normalizedUrl && riskLevel === 'safe' && (
+                                    <a
+                                        href={analysisResult.normalizedUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex-1 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-green-700 dark:text-green-300 border-2 border-green-500 text-sm font-semibold py-3 px-4 rounded-xl transition-colors text-center"
+                                    >
+                                        Open Link Safely →
+                                    </a>
+                                )}
+                                <button
+                                    onClick={() => handleCopyToClipboard(analysisResult.decodedText)}
+                                    className="flex-1 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-2 border-slate-300 dark:border-slate-600 text-sm font-semibold py-3 px-4 rounded-xl transition-colors"
+                                >
+                                    📋 Copy URL
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Simple Success (Non-URL) */}
+                    {decodeResult && decodeResult.success && !decodeResult.isUrl && (
+                        <div className="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 p-6 rounded-xl space-y-4 shadow-sm">
+                            <div className="flex items-start gap-3">
+                                <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center shadow-md">
+                                    <span className="text-white text-xl">✓</span>
+                                </div>
                                 <div className="flex-1 space-y-3">
-                                    <p className="text-sm text-green-800 dark:text-green-200 font-semibold">
+                                    <p className="text-sm text-blue-800 dark:text-blue-200 font-semibold">
                                         QR Code Decoded Successfully!
                                     </p>
 
-                                    <div className="bg-white dark:bg-slate-800 p-4 rounded-lg border border-green-200 dark:border-green-800">
+                                    <div className="bg-white dark:bg-slate-800 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
                                         <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">
                                             Decoded Content:
                                         </p>
                                         <p className="text-slate-900 dark:text-white font-mono text-sm break-all">
-                                            {result.decodedText}
+                                            {decodeResult.decodedText}
                                         </p>
                                     </div>
 
-                                    {result.isUrl && result.normalizedUrl && (
-                                        <div className="flex gap-2">
-                                            <a
-                                                href={result.normalizedUrl}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="flex-1 bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold py-2 px-4 rounded-lg transition-colors text-center"
-                                            >
-                                                Open Link →
-                                            </a>
-                                            <button
-                                                onClick={() => handleCopyToClipboard(result.normalizedUrl!)}
-                                                className="px-4 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-sm font-semibold rounded-lg transition-colors"
-                                            >
-                                                Copy
-                                            </button>
-                                        </div>
-                                    )}
+                                    <p className="text-xs text-blue-600 dark:text-blue-400">
+                                        ℹ This appears to be plain text, not a URL.
+                                    </p>
 
-                                    {!result.isUrl && (
-                                        <button
-                                            onClick={() => handleCopyToClipboard(result.decodedText!)}
-                                            className="w-full bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-sm font-semibold py-2 px-4 rounded-lg transition-colors"
-                                        >
-                                            Copy Text
-                                        </button>
-                                    )}
+                                    <button
+                                        onClick={() => handleCopyToClipboard(decodeResult.decodedText!)}
+                                        className="w-full bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-sm font-semibold py-2 px-4 rounded-lg transition-colors"
+                                    >
+                                        Copy Text
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -292,9 +535,10 @@ export default function ScanPage() {
                 <div className="text-center mt-8">
                     <a
                         href="/"
-                        className="text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 font-semibold transition-colors"
+                        className="inline-flex items-center gap-2 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-semibold transition-colors"
                     >
-                        ← Back to Home
+                        <span>←</span>
+                        Back to Home
                     </a>
                 </div>
             </div>

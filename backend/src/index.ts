@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import qrRoutes from './routes/qr.routes';
+import analyzeUrlRoutes from './routes/analyzeUrl.routes';
 
 // Load environment variables
 dotenv.config();
@@ -32,6 +33,7 @@ app.get('/health', (_req: Request, res: Response) => {
 
 // API routes
 app.use('/api/qr', qrRoutes);
+app.use('/api', analyzeUrlRoutes);
 
 // 404 handler
 app.use((_req: Request, res: Response) => {

@@ -9,7 +9,10 @@ const MAX_IMAGE_WIDTH = 1200;
 export interface QRDecodeResult {
     success: boolean;
     decodedText: string | null;
-    error?: string;
+    error?: {
+        code: string;
+        message: string;
+    };
 }
 
 /**
@@ -28,7 +31,10 @@ export async function decodeQRFromImage(
             return {
                 success: false,
                 decodedText: null,
-                error: 'Invalid image dimensions',
+                error: {
+                    code: 'INVALID_IMAGE',
+                    message: 'Invalid image dimensions',
+                },
             };
         }
 
@@ -60,7 +66,10 @@ export async function decodeQRFromImage(
             return {
                 success: false,
                 decodedText: null,
-                error: 'No QR code found in image',
+                error: {
+                    code: 'QR_NOT_FOUND',
+                    message: 'No QR code found in image',
+                },
             };
         }
 
@@ -73,7 +82,10 @@ export async function decodeQRFromImage(
         return {
             success: false,
             decodedText: null,
-            error: error instanceof Error ? error.message : 'Failed to decode QR code',
+            error: {
+                code: 'DECODE_ERROR',
+                message: error instanceof Error ? error.message : 'Failed to decode QR code',
+            },
         };
     }
 }

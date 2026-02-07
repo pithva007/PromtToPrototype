@@ -1,0 +1,22 @@
+{
+  "accuracy": 0.9463,
+  "precision": 0.9444798978940651,
+  "recall": 0.8907613602166716,
+  "f1": 0.9168344432398947,
+  "confusion_matrix": [
+    [
+      6503,
+      174
+    ],
+    [
+      363,
+      2960
+    ]
+  ],
+  "oob_score": 0.947875,
+  "best_params": {
+    "n_estimators": 200,
+    "max_depth": null,
+    "min_samples_split": 2
+  }
+}

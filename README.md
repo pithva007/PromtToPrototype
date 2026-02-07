@@ -5,12 +5,16 @@ A production-grade QR code scanning web application with secure image upload and
 ## 📋 Features
 
 - **Secure QR Decoding**: Safely decode QR codes from PNG, JPG, and WebP images
+- **🤖 AI-Powered URL Detection**: Random Forest ML model detects malicious URLs
+- **🎯 Threat Classification**: Identifies phishing, malware, payment scams, and redirects
+- **📊 Risk Scoring**: Real-time threat assessment with confidence levels
 - **Modern UI**: Beautiful, responsive interface built with Next.js 14 and Tailwind CSS
 - **Real-time Validation**: Client and server-side file validation
 - **Smart URL Detection**: Automatically detects and normalizes URLs
 - **Rate Limiting**: Built-in protection against abuse
 - **Type-Safe**: Full TypeScript implementation
 - **Mobile-Friendly**: Optimized for all screen sizes
+- **Dark Mode**: Automatic theme switching
 
 ## 🛠️ Tech Stack
 
@@ -25,34 +29,52 @@ A production-grade QR code scanning web application with secure image upload and
 - **jsQR** - QR code decoding
 - **sharp** - Image processing
 - **multer** - File uploads
+- **axios** - ML service client
 - **express-rate-limit** - API protection
 - **CORS** - Cross-origin security
+
+### ML Service
+- **Python 3.10+** + FastAPI
+- **scikit-learn** - Random Forest classifier
+- **TF-IDF** - Feature extraction
+- **pandas** - Data processing
+- **joblib** - Model persistence
 
 ## 📁 Project Structure
 
 ```
 PtoP/                      # Project root
-├── backend/               # Express API
+├── ml/                    # Python ML Service
+│   ├── app.py            # FastAPI server
+│   ├── train_model.py    # Model training
+│   ├── sample_data.csv   # Training data
+│   ├── requirements.txt
+│   └── artifacts/        # Trained models
+│
+├── backend/              # Express API
 │   ├── src/
 │   │   ├── index.ts
 │   │   ├── routes/
-│   │   │   └── qr.routes.ts
+│   │   │   ├── qr.routes.ts
+│   │   │   └── analyzeUrl.routes.ts
 │   │   ├── controllers/
-│   │   │   └── qr.controller.ts
+│   │   │   ├── qr.controller.ts
+│   │   │   └── analyzeUrl.controller.ts
 │   │   ├── middleware/
 │   │   │   ├── upload.middleware.ts
 │   │   │   └── rateLimiter.middleware.ts
 │   │   └── utils/
 │   │       ├── qrDecoder.ts
-│   │       └── validators.ts
+│   │       ├── validators.ts
+│   │       └── mlClient.ts
 │   ├── package.json
 │   ├── tsconfig.json
 │   └── .env
 │
-├── frontend/              # Next.js 14 App
+├── frontend/             # Next.js 14 App
 │   ├── src/
 │   │   └── app/
-│   │       ├── scan/      # QR scan page
+│   │       ├── scan/     # QR scan page
 │   │       ├── layout.tsx
 │   │       ├── page.tsx
 │   │       └── globals.css
@@ -61,7 +83,8 @@ PtoP/                      # Project root
 │   └── .env.local
 │
 ├── README.md
-└── CURL_EXAMPLES.md
+├── SETUP.md              # Complete setup guide
+└── CURL_EXAMPLES.md      # API testing examples
 ```
 
 ## 🚀 Getting Started
@@ -71,6 +94,11 @@ PtoP/                      # Project root
 - **Node.js** 18+ and npm
 - Git
 
+### Prerequisites
+
+- **Node.js** 18+ and npm
+- **Python** 3.10+
+
 ### Installation
 
 1. **Navigate to the project folder**
@@ -78,13 +106,26 @@ PtoP/                      # Project root
 cd /Users/khushpithva/Documents/PtoP
 ```
 
-2. **Install Backend Dependencies**
+2. **Install ML Service Dependencies**
 ```bash
-cd backend
+cd ml
+pip install -r requirements.txt
+```
+
+3. **Train the ML Model (REQUIRED)**
+```bash
+python train_model.py
+```
+
+This creates the trained model files in `ml/artifacts/`
+
+4. **Install Backend Dependencies**
+```bash
+cd ../backend
 npm install
 ```
 
-3. **Install Frontend Dependencies**
+5. **Install Frontend Dependencies**
 ```bash
 cd ../frontend
 npm install

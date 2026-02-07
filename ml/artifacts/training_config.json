@@ -1,0 +1,30 @@
+{
+  "model_version": "20260207_110443",
+  "timestamp": "2026-02-07T11:04:43.525697",
+  "dataset_path": "./data/malicious_phish.csv",
+  "dataset_size": 50000,
+  "url_column": "url",
+  "label_column": "normalized_label",
+  "label_distribution": {
+    "benign": 33385,
+    "malicious": 16615
+  },
+  "train_size": 40000,
+  "test_size": 10000,
+  "test_split": 0.2,
+  "sample_size": 50000,
+  "hyperparameter_tuning": false,
+  "tfidf_params": {
+    "max_features": 10000,
+    "ngram_range": [
+      1,
+      2
+    ],
+    "min_df": 2
+  },
+  "rf_params": {
+    "n_estimators": 200,
+    "max_depth": null,
+    "min_samples_split": 2
+  }
+}
